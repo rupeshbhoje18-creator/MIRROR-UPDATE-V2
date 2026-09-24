@@ -49,6 +49,14 @@ object SyncCollector {
                 let companyName = '';
                 let serialNumber = '';
 
+                const active = bridge();
+                if (active && active.getActiveCompanyName) {
+                    try {
+                        companyName = clean(active.getActiveCompanyName());
+                        serialNumber = active.getActiveSerialNumber ? clean(active.getActiveSerialNumber()) : '';
+                    } catch (_) {}
+                }
+
                 for (const table of Array.from(document.querySelectorAll('table'))) {
                     const text = clean(table.innerText);
                     if (!/Company\s*Name/i.test(text)) continue;
@@ -76,12 +84,6 @@ object SyncCollector {
                             if (text && text.length < 180) { companyName = text; break; }
                         }
                     }
-                }
-
-                const active = bridge();
-                if (!companyName && active && active.getActiveCompanyName) {
-                    companyName = clean(active.getActiveCompanyName());
-                    serialNumber = active.getActiveSerialNumber ? clean(active.getActiveSerialNumber()) : '';
                 }
 
                 if (!companyName) {
@@ -119,6 +121,25 @@ object SyncCollector {
                 let p = '';
                 try { p = new URL(url).pathname.toLowerCase(); } catch (_) { return false; }
                 return !/(\/(logout|signout|signin|login|delete|remove|create|new|edit|save|submit)(\/|$))/i.test(p);
+            }
+
+            function recoverCompanyFromDom() {
+                const b = bridge();
+                if (!b || !b.setActiveCompany) return;
+                try {
+                    const selectors = [
+                        '[data-company-name]','[data-company]','[id*="company" i]','[class*="company-name" i]','[class*="companyName" i]'
+                    ];
+                    for (const selector of selectors) {
+                        for (const el of Array.from(document.querySelectorAll(selector)).slice(0, 30)) {
+                            const name = clean(el.getAttribute('data-company-name') || el.getAttribute('data-company') || el.textContent);
+                            if (looksLikeCompanyName(name)) {
+                                b.setActiveCompany(name, '');
+                                return;
+                            }
+                        }
+                    }
+                } catch (_) {}
             }
 
             function maybeOpenMenu() {
@@ -171,7 +192,7 @@ object SyncCollector {
                 if (!b || !b.getMirrorProgress) return;
                 try {
                     const p = JSON.parse(b.getMirrorProgress());
-                    status('AUTO SAVING COMPANY • Saved: ' + p.saved + ' • Queue: ' + p.queued);
+                    status((p.company ? 'AUTO SAVING: ' + p.company : 'WAITING FOR COMPANY SELECTION') + ' • Saved: ' + p.saved + ' • Queue: ' + p.queued);
                 } catch (_) {}
             }
 
@@ -215,7 +236,7 @@ object SyncCollector {
                 if (b.enqueueDiscoveredUrls && ctx.companyName) {
                     b.enqueueDiscoveredUrls(ctx.companyName, ctx.serialNumber || '', JSON.stringify(urls));
                 }
-                status('Saving page + discovering ' + urls.length + ' links…');
+                status('Saving ' + ctx.companyName + ' • page + discovering ' + urls.length + ' links…');
                 sendHtml(ctx);
                 refreshStatus();
                 if (b.requestNextMirrorPage) b.requestNextMirrorPage();
@@ -231,7 +252,7 @@ object SyncCollector {
                 if (!document.getElementById(STATUS_ID)) {
                     const st = document.createElement('div');
                     st.id = STATUS_ID;
-                    st.textContent = 'Starting whole-company offline save…';
+                    st.textContent = 'WAITING FOR COMPANY SELECTION…';
                     st.style.cssText = 'position:fixed;right:8px;top:76px;z-index:2147483647;background:rgba(0,0,0,.80);color:#fff;padding:7px 11px;border-radius:8px;font:700 12px sans-serif;max-width:310px;box-shadow:0 2px 8px rgba(0,0,0,.30);';
                     document.body.appendChild(st);
                 }
@@ -252,23 +273,60 @@ object SyncCollector {
 
             window.TallyOfflineMirror = { captureCurrentPage, discoverLinks };
 
+            function looksLikeCompanyName(value) {
+                const text = clean(value);
+                if (!text || text.length < 2 || text.length > 180) return false;
+                if (/^(open|select|view|edit|delete|connected|offline|online|status|serial|serial no|company|company name|logout|sign out)$/i.test(text)) return false;
+                if (/^(\d{5,}|[A-Z0-9_-]{8,})$/i.test(text)) return false;
+                if (/login|sign in|customer portal|menu|navigation/i.test(text)) return false;
+                return true;
+            }
+
             function detectCompanyFromClickedElement(target) {
-                const row = target && target.closest ? target.closest('tr,[role="row"],li,[class*="company"],[data-company-name]') : null;
-                if (!row) return;
-                const text = clean(row.innerText || '');
-                if (!text || !/(company|connected|open|serial)/i.test(text)) return;
-                let name = clean(row.getAttribute('data-company-name') || '');
-                const cells = Array.from(row.querySelectorAll('td,th')).map(x => clean(x.innerText)).filter(Boolean);
-                if (!name && cells.length) {
-                    name = cells.find(x => !/connected|offline|status|serial|open|select/i.test(x) && x.length > 1) || '';
-                }
-                if (!name) {
-                    const m = text.match(/(?:company(?:\s*name)?|name)\s*[:\-]\s*([^\n|]{2,120})/i);
-                    if (m) name = clean(m[1]);
-                }
-                if (!name || /login|sign in|customer portal/i.test(name)) return;
                 const b = bridge();
-                if (b && b.setActiveCompany) b.setActiveCompany(name, '');
+                if (!b || !b.setActiveCompany || !target) return;
+
+                const candidates = [];
+                let node = target;
+                for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+                    const attrValues = [
+                        node.getAttribute && node.getAttribute('data-company-name'),
+                        node.getAttribute && node.getAttribute('data-company'),
+                        node.getAttribute && node.getAttribute('aria-label'),
+                        node.getAttribute && node.getAttribute('title')
+                    ];
+                    attrValues.forEach(v => { if (v) candidates.push(clean(v)); });
+
+                    const cells = node.querySelectorAll ?
+                        Array.from(node.querySelectorAll('td,th,[role="cell"],[data-company-name]'))
+                            .map(x => clean(x.getAttribute && x.getAttribute('data-company-name') || x.innerText || x.textContent))
+                            .filter(Boolean) : [];
+                    candidates.push(...cells);
+
+                    const text = clean(node.innerText || node.textContent || '');
+                    if (text && text.length <= 500) {
+                        text.split(/\n|\||•/).map(clean).filter(Boolean).forEach(v => candidates.push(v));
+                    }
+                }
+
+                let company = candidates.find(looksLikeCompanyName) || '';
+                if (!company) {
+                    const row = target.closest && target.closest('tr,[role="row"],li,[class*="company"],[data-company-name]');
+                    if (row) {
+                        const text = clean(row.innerText || '');
+                        const lines = text.split(/\n+/).map(clean).filter(Boolean);
+                        company = lines.find(looksLikeCompanyName) || '';
+                        const dataName = clean(row.getAttribute && row.getAttribute('data-company-name') || '');
+                        if (looksLikeCompanyName(dataName)) company = dataName;
+                    }
+                }
+
+                if (!company) return;
+
+                let serial = '';
+                const serialMatch = candidates.join(' | ').match(/(?:serial(?:\s*no)?|serial\s*number)\s*[:#-]?\s*([A-Z0-9_-]{5,})/i);
+                if (serialMatch) serial = clean(serialMatch[1]);
+                b.setActiveCompany(company, serial);
             }
 
             document.addEventListener('click', function(e) {
@@ -288,10 +346,11 @@ object SyncCollector {
             if (document.body) observer.observe(document.body, {childList:true, subtree:true});
 
             installOverlay();
+            recoverCompanyFromDom();
             maybeOpenMenu();
             setTimeout(maybeOpenMenu, 500);
-            setTimeout(() => { installOverlay(); captureCurrentPage(); }, 1000);
-            setTimeout(captureCurrentPage, 2600);
+            setTimeout(() => { installOverlay(); recoverCompanyFromDom(); captureCurrentPage(); }, 1000);
+            setTimeout(() => { recoverCompanyFromDom(); captureCurrentPage(); }, 2600);
         })();
     """.trimIndent()
 }
