@@ -1,0 +1,16 @@
+FINAL DATABASE + SYNC COLLECTOR
+
+Database file: database/tally_offline_final.db
+Room version: 3
+
+Collector entry point:
+app/src/main/java/com/example/tallycustomerapp/SyncCollector.kt
+
+Android bridge:
+app/src/main/java/com/example/tallycustomerapp/WebAppInterface.kt
+
+Persistence:
+app/src/main/java/com/example/tallycustomerapp/OfflineDao.kt
+
+The collector only stores real data found in the visible authenticated Tally page.
+No random/sample ledger or voucher values are generated.
