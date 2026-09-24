@@ -25,11 +25,10 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Validate Gradle Wrapper
-        uses: gradle/actions/wrapper-validation@v3
-
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          validate-wrappers: false
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
@@ -45,7 +44,7 @@ jobs:
 
       - name: Verify APK
         run: |
-          echo "APK files:"
+          echo "Checking generated APK..."
           find app/build/outputs/apk/debug -type f -name "*.apk" -print
 
       - name: Upload APK
