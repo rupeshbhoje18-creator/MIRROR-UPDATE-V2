@@ -33,6 +33,7 @@ class WebAppInterface(
     onNavigate: (String) -> Unit
 ) {
     private val gson = Gson()
+    private val mirrorPrefs = context.getSharedPreferences("tally_offline_mirror", Context.MODE_PRIVATE)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val onNavigateCallback = onNavigate
@@ -50,6 +51,12 @@ class WebAppInterface(
     private var pagesVisited = 0
     private var pagesSaved = 0
     private var maxPages = 2000
+
+    init {
+        activeCompanyName = mirrorPrefs.getString("active_company_name", "").orEmpty()
+        activeSerialNumber = mirrorPrefs.getString("active_serial_number", "").orEmpty()
+        activeCompanyKey = activeCompanyName.lowercase()
+    }
 
     fun attachWebView(webView: WebView) {
         webViewRef = WeakReference(webView)
@@ -83,6 +90,10 @@ class WebAppInterface(
                 if (serial.isBlank()) "WEB-${name.hashCode()}" else serial
             activeCompanyKey = key
             mirrorStopped = false
+            mirrorPrefs.edit()
+                .putString("active_company_name", activeCompanyName)
+                .putString("active_serial_number", activeSerialNumber)
+                .apply()
         }
     }
 
