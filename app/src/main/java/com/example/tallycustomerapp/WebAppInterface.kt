@@ -20,7 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
-import java.io.GZIPOutputStream
+import java.util.zip.GZIPOutputStream
 import java.lang.ref.WeakReference
 import java.net.URI
 import java.util.ArrayDeque
@@ -236,25 +236,21 @@ class WebAppInterface(
 
     @JavascriptInterface
     fun beginSync(syncId: String) {
-        // Backward-compatible structured-data sync entry point.
         if (syncId.isBlank()) return
     }
 
     @JavascriptInterface
     fun pushSyncChunk(syncId: String, chunk: String) {
-        // Kept for compatibility with older builds;
-        // whole-page mirroring is primary.
+        // Backward compatibility.
     }
 
     @JavascriptInterface
     fun commitSync(syncId: String) {
-        // Kept for compatibility with older builds.
+        // Backward compatibility.
     }
 
     @JavascriptInterface
     fun saveCompanyDataOffline(dataJson: String) {
-        // Older structured payload compatibility.
-        // Current app saves complete HTML page snapshots.
         try {
             val payload = gson.fromJson(
                 dataJson,
@@ -423,8 +419,8 @@ class WebAppInterface(
     private fun gzip(text: String): ByteArray {
         val out = ByteArrayOutputStream()
 
-        GZIPOutputStream(out).use {
-            it.write(text.toByteArray(Charsets.UTF_8))
+        GZIPOutputStream(out).use { gzipStream ->
+            gzipStream.write(text.toByteArray(Charsets.UTF_8))
         }
 
         return out.toByteArray()
