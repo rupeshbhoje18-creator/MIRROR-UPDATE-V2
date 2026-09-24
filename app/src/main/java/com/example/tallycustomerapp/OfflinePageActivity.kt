@@ -5,13 +5,18 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.example.tallycustomerapp.data.AppDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.util.zip.GZIPInputStream
 
 class OfflinePageActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         val webView = WebView(this)
         webView.settings.javaScriptEnabled = false
         webView.settings.domStorageEnabled = false
@@ -20,38 +25,64 @@ class OfflinePageActivity : AppCompatActivity() {
 
         val pageId = intent.getLongExtra(EXTRA_PAGE_ID, -1L)
         if (pageId <= 0L) {
-            Toast.makeText(this, "Offline page not found", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                "Offline page not found",
+                Toast.LENGTH_SHORT
+            ).show()
             finish()
             return
         }
 
-        Thread {
-            val page = runCatching { AppDatabase.getDatabase(this).companyDao().getPage(pageId) }.getOrNull()
-            runOnUiThread {
-                if (page == null) {
-                    Toast.makeText(this, "Offline page not found", Toast.LENGTH_SHORT).show()
-                    finish()
-                    return@runOnUiThread
+        lifecycleScope.launch {
+            val page = runCatching {
+                withContext(Dispatchers.IO) {
+                    AppDatabase.getDatabase(this@OfflinePageActivity)
+                        .companyDao()
+                        .getPage(pageId)
                 }
-                title = page.title
-                val html = runCatching { ungzip(page.htmlGzip) }.getOrElse {
-                    Toast.makeText(this, "Saved page is corrupt", Toast.LENGTH_LONG).show()
-                    finish()
-                    return@runOnUiThread
-                }
-                webView.loadDataWithBaseURL(
-                    page.url,
-                    html,
-                    "text/html",
-                    "UTF-8",
-                    null
-                )
+            }.getOrNull()
+
+            if (page == null) {
+                Toast.makeText(
+                    this@OfflinePageActivity,
+                    "Offline page not found",
+                    Toast.LENGTH_SHORT
+                ).show()
+                finish()
+                return@launch
             }
-        }.start()
+
+            title = page.title
+
+            val html = runCatching {
+                withContext(Dispatchers.IO) {
+                    ungzip(page.htmlGzip)
+                }
+            }.getOrElse {
+                Toast.makeText(
+                    this@OfflinePageActivity,
+                    "Saved page is corrupt",
+                    Toast.LENGTH_LONG
+                ).show()
+                finish()
+                return@launch
+            }
+
+            webView.loadDataWithBaseURL(
+                page.url,
+                html,
+                "text/html",
+                "UTF-8",
+                null
+            )
+        }
     }
 
     private fun ungzip(data: ByteArray): String {
-        return GZIPInputStream(ByteArrayInputStream(data)).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        return GZIPInputStream(
+            ByteArrayInputStream(data)
+        ).bufferedReader(Charsets.UTF_8).use { it.readText() }
     }
 
     companion object {
